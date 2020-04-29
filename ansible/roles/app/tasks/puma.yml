@@ -1,5 +1,5 @@
 ---
-# tasks puma config 
+# tasks puma config
 
 - name: Add unit file for Puma
   template:
