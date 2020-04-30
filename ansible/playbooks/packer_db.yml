@@ -1,40 +1,46 @@
 - name: Install mondoDB
   hosts: all
   become: true
+  roles:
+    - ../roles/db
   vars:
-  tasks:
-    - name: Add key
-      apt_key:
-        keyserver: hkp://keyserver.ubuntu.com:80
-        id: EA312927
-        state: present
+    mongo_bind_ip: 0.0.0.0
+  # tasks:
+  #   - name: Add key
+  #     apt_key:
+  #       keyserver: hkp://keyserver.ubuntu.com:80
+  #       id: EA312927
+  #       state: present
 
-    - name: Add apt repository mongodb
-      apt_repository:
-        repo: deb http://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/3.2 multiverse
-        filename: mongodb-org-3.2.list
-        state: present
+  #   - name: Add apt repository mongodb
+  #     apt_repository:
+  #       repo: deb http://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/3.2 multiverse
+  #       filename: mongodb-org-3.2.list
+  #       state: present
 
-    - name: Update repositories cache
-      apt:
-        update_cache: yes
+  #   - name: Update repositories cache
+  #     apt:
+  #       update_cache: yes
 
-    - name: Install python-apt
-      apt:
-        name: python-apt
-        state: present
+  #   - name: Install python-apt
+  #     apt:
+  #       name: python-apt
+  #       state: present
 
-    - name: Install mongodb
-      apt:
-        name: mongodb-org
-        state: present
+  #   - name: Install mongodb
+  #     apt:
+  #       force_apt_get: yes
+  #       name: mongodb-org
+  #       install_recommends: yes
+  #       allow_unauthenticated: yes
+  #       state: latest
 
-    - name: start puma
-      systemd:
-        name: mongodb
-        state: started
+  #   - name: start puma
+  #     systemd:
+  #       name: mongod
+  #       state: started
 
-    - name: enable puma
-      systemd:
-        name: mongodb
-        enabled: yes
+  #   - name: enable puma
+  #     systemd:
+  #       name: mongod
+  #       enabled: yes

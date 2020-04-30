@@ -24,7 +24,7 @@ before_install:
 - cd ../..;
 
 # ansible lint
-- ansible-lint ./ansible/playbooks/*.yml;
+- ansible-lint -x metadata ./ansible/playbooks/*.yml ;
 
 
 notifications:

@@ -354,3 +354,180 @@ resource "google_compute_firewall" "firewall_puma" {
     в Readme добавлен бейдж.  
 
 [20]: https://raw.githubusercontent.com/Otus-DevOps-2020-02/Oturans_infra/ansible-3/.travis.yml
+
+## Ansible 4
+
+1. Настроено окружение для работы с vagrant  
+2. Для работы в дирректории ansible создан [Vagrantfile][21]  
+3. В playbook site.xml добавлен новый [base.xml][22] для установки python внутри наших ВМ. Удален user.xml за не надобностью видимо.  
+
+4. Изменили роль DB теперь она включает задания в том числе для установки mongoDB. Добавили файл [install_mongo.yml][23]
+5. Задания по настройке mongoDB перенесли так же в отдельный фалй [config_mongo.yml][24]
+6. Скорректировали файл заданий для роли db после действий в пунке 4 и 5 теперь он выглядит так:  
+```
+---
+# tasks file for db
+
+- name: Show info about the env this host belongs to
+  debug:
+    msg: "This host is in {{ env }} environment!!!"
+
+- include: install_mongo.yml
+- include: config_mongo.yml
+```
+
+7. Аналогиным образом перенесли установку руби в роль app. Создали файл [ruby.yml][25] в который перенесли задания по установке. А нстройку в файл [puma.yml][26].  
+8. Скорректировали файл заданий для роли app после действий в пунке 7 теперь он выглядит так:
+```
+---
+# tasks file for app
+
+- name: Show info about the env this host belongs to
+  debug:
+    msg: "This host is in {{ env }} environment!!!"
+
+- include: ruby.yml
+- include: puma.yml
+```
+
+9. Дополнили Vagrantfile в части ansible провижинера для роли app  
+```
+app.vm.provision "ansible" do |ansible|
+      ansible.playbook = "playbooks/site.yml"
+      ansible.groups = {
+      "app" => ["appserver"],
+      "app:vars" => { "db_host" => "10.10.10.10"}
+      }
+```
+
+10. Увидели что с ранее настроенным динамическим инвентари vagrant падает в ошибкой, перенастроили [ansible.cfg][27] на статический инвентари, и vagrant перестал падать, и это при том факте что он создает свой инвентари который можно посмотреть по пути **.vagrant/provisioners/ansible/inventory/vagrant_ansible_inventory**
+
+11. Параметризовали выбор пользоваля от которого нужно все устанавливать для роли app.
+    в app/defaults/main.yml добавляем переменную deploy_user: appuser
+    Модифицируем файл puma.yml будем копировать шаблон а не готовый файл, в который будем подставлять того пользователя который будет задан в переменных.  
+```
+  - name: Add unit file for Puma  
+      template:   <= меняем тип модуля с copy на template
+        src: puma.service.j2 <= используем шаблон  
+        dest: /etc/systemd/system/puma.service  
+      notify: reload puma    
+```
+
+Файл шаблона создаем в app/files и он будет выглядеть так:
+```
+[Unit]
+Description=Puma HTTP Server
+After=network.target
+[Service]
+Type=simple
+EnvironmentFile=/home/{{ deploy_user }}/db_config
+User={{ deploy_user }}
+WorkingDirectory=/home/{{ deploy_user }}/reddit
+ExecStart=/bin/bash -lc 'puma'
+Restart=always
+[Install]
+WantedBy=multi-user.target
+```
+
+Так же заменим в оставшейся части задания **puma.yml** прямое указание пользователя на наш парраметр:
+```
+- name: Add config for DB connection
+  template:
+    src: db_config.j2
+    dest: "/home/{{ deploy_user }}/db_config"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+```
+
+Так же у нас остается ansible/playbooks/**deploy.yml**, вносим в него аналогичные изменения.  
+```
+---
+- name: Deploy application
+  become: true
+  hosts: app
+  tasks:
+    - name: Fetch the latest version of application code
+      git:
+        repo: 'https://github.com/express42/reddit.git'
+        dest: "/home/{{ deploy_user }}/reddit"
+        version: monolith 
+      notify: reload puma
+
+    - name: Bundle install
+      bundler:
+        state: present
+        chdir: "/home/{{ deploy_user }}/reddit"
+
+  handlers:
+  - name: reload puma
+    service: name=puma state=restarted
+
+```
+
+12. Дополняем [Vagrantfile][21] в части указание пользователя,  добавляем блок **extra_vars**  
+```
+ansible.extra_vars = {
+"deploy_user" => "ubuntu"
+}
+```
+
+13. В процессе работы использовали команды:  
+    **vagrant up** - развернуть все  
+    **vagrant provision dbserver** - накатить изменения из блока provision на ВМ dbserver  
+    **vagrant provision appserver** - накатить изменения из блока provision на ВМ appserver  
+    **vagrant destroy -f** - удалить все созданное.  
+
+14. **Задание со \*** Дополняем блок extra_vars [Vagrantfile][21] передеаем параметры для настройки nginx
+```
+ansible.extra_vars = {
+          "deploy_user" =>  "ubuntu",
+          "nginx_sites" => {
+            "default" => [
+              "listen 80",
+              "server_name \"reddit\"",
+              "location / { proxy_pass http://127.0.0.1:9292;}"
+            ]
+          }
+        }
+```
+
+#### Тестирование роли  
+15. Настраиваем virtualenv и в ней устанавливаем с помощью команды **pip install -r requirements.txt**  
+
+Предварительно дополняем файл ansible/requirements.txt   
+ansible>=2.4  
+molecule==2.22  **<= именно так, иначе установиться 3.х  и работать ничего не будет**  
+testinfra>=1.10  
+python-vagrant>=0.5.15  
+
+16. В каталоге **ansible/roles/db:** выполняем команду  
+
+```
+molecule init scenario --scenario-name default -r db -d vagrant
+```
+
+Команда создает заготовку тестов. 
+
+17. Сохраняем готовый тест в папку [db/molecule/default/tests/test_default.py][28]
+
+18. Настроили в тесте проверку 27017 порту, добавляем в файл из пунка 17 в конце блок
+```
+# check port 27017 work
+def test_tcp_port_27020(host):
+    mongo_port = host.socket("tcp://0.0.0.0:27017")
+    assert mongo_port.is_listening
+```
+19. Использовали роли db и app в плейбуках packer_db.yml и
+packer_app.yml, все работает!
+
+
+
+[21]: https://raw.githubusercontent.com/Otus-DevOps-2020-02/Oturans_infra/ansible-4/ansible/Vagrantfile
+[22]: https://raw.githubusercontent.com/Otus-DevOps-2020-02/Oturans_infra/ansible-4/ansible/playbooks/base.yml
+[23]: https://raw.githubusercontent.com/Otus-DevOps-2020-02/Oturans_infra/ansible-4/ansible/roles/db/tasks/install_mongo.yml
+[24]: https://raw.githubusercontent.com/Otus-DevOps-2020-02/Oturans_infra/ansible-4/ansible/roles/db/tasks/config_mongo.yml
+[25]: https://raw.githubusercontent.com/Otus-DevOps-2020-02/Oturans_infra/ansible-4/ansible/roles/app/tasks/ruby.yml
+[26]: https://raw.githubusercontent.com/Otus-DevOps-2020-02/Oturans_infra/ansible-4/ansible/roles/app/tasks/puma.yml
+[27]: https://raw.githubusercontent.com/Otus-DevOps-2020-02/Oturans_infra/ansible-4/ansible/ansible.cfg
+[28]: https://raw.githubusercontent.com/Otus-DevOps-2020-02/Oturans_infra/ansible-4/ansible/roles/db/molecule/default/tests/test_default.py
+

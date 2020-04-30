@@ -8,3 +8,12 @@ packer/imu_variables.json
 *.retry
 jdauphant.nginx
 vault.key
+# Vagrant & molecule
+.vagrant/
+*.log
+*.pyc
+.molecule
+.cache
+.pytest_cache
+# Virtual env
+venv
